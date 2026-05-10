@@ -1,3 +1,4 @@
+#include "hyb_stub.h"
 /******************************************************************************
  * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
  *
@@ -43,7 +44,6 @@
 
 #include <cub/device/device_spmv.cuh>
 #include <cub/util_allocator.cuh>
-#include <cub/iterator/tex_ref_input_iterator.cuh>
 
 #include "sparse_matrix.h"
 #include <utils.h>
@@ -578,10 +578,10 @@ void RunTest(
     DisplayPerf(device_giga_bandwidth, setup_ms, avg_ms, csr_matrix);
 
     // Cleanup
-    if (params.d_values)            CubDebugExit(g_allocator.DeviceFree(params.d_values));
-    if (params.d_row_end_offsets)   CubDebugExit(g_allocator.DeviceFree(params.d_row_end_offsets));
-    if (params.d_column_indices)    CubDebugExit(g_allocator.DeviceFree(params.d_column_indices));
-    if (params.d_vector_x)          CubDebugExit(g_allocator.DeviceFree(params.d_vector_x));
+    if (params.d_values)            CubDebugExit(g_allocator.DeviceFree((void*)params.d_values));
+    if (params.d_row_end_offsets)   CubDebugExit(g_allocator.DeviceFree((void*)params.d_row_end_offsets));
+    if (params.d_column_indices)    CubDebugExit(g_allocator.DeviceFree((void*)params.d_column_indices));
+    if (params.d_vector_x)          CubDebugExit(g_allocator.DeviceFree((void*)params.d_vector_x));
     if (params.d_vector_y)          CubDebugExit(g_allocator.DeviceFree(params.d_vector_y));
 
     if (vector_x)                   delete[] vector_x;
