@@ -1,12 +1,40 @@
 matrix,approach,time_ms,gflops,speedup,correct
-thermomech_dK,1. Sequential Baseline,3.407029,1.670798,1.0000,PASS
-thermomech_dK,2. OMP Merge-Path Scalar,1.405559,4.049959,2.4240,PASS
-thermomech_dK,3. OMP Merge-Path AVX2,1.827797,3.114381,1.8640,PASS
-thermomech_dK,4. OMP Merge-Path AVX2 Unrolled×2,1.953375,2.914165,1.7442,PASS
-thermomech_dK,5. OMP Merge-Path AVX2 Unrolled+Prefetch,2.004598,2.839699,1.6996,PASS
+thermomech_dK,1. Sequential Baseline,3.405812,1.671395,1.0000,PASS
+thermomech_dK,2. OMP Merge-Path Scalar,0.992198,5.737217,3.4326,PASS
+thermomech_dK,3. OMP Merge-Path AVX2,1.329516,4.281601,2.5617,PASS
+thermomech_dK,4. OMP Merge-Path AVX2 Unrolled×2,2.153018,2.643942,1.5819,PASS
+thermomech_dK,5. OMP Merge-Path AVX2 Unrolled+Prefetch,1.032496,5.513294,3.2986,PASS
 matrix,approach,time_ms,gflops,speedup,correct
-ASIC_320k,1. Sequential Baseline,3.517702,1.498344,1.0000,PASS
-ASIC_320k,2. OMP Merge-Path Scalar,1.688761,3.121061,2.0830,PASS
-ASIC_320k,3. OMP Merge-Path AVX2,1.707946,3.086004,2.0596,PASS
-ASIC_320k,4. OMP Merge-Path AVX2 Unrolled×2,2.109453,2.498623,1.6676,PASS
-ASIC_320k,5. OMP Merge-Path AVX2 Unrolled+Prefetch,4.201238,1.254565,0.8373,PASS
+thermomech_dK,1. Sequential Baseline,3.334097,1.707346,1.0000,PASS
+thermomech_dK,2. OMP Merge-Path Scalar,2.114977,2.691498,1.5764,PASS
+thermomech_dK,3. OMP Merge-Path AVX2,1.180521,4.821985,2.8243,PASS
+thermomech_dK,4. OMP Merge-Path AVX2 Unrolled×2,1.123408,5.067132,2.9678,PASS
+thermomech_dK,5. OMP Merge-Path AVX2 Unrolled+Prefetch,1.313875,4.332569,2.5376,PASS
+matrix,approach,time_ms,gflops,speedup,correct
+ASIC_320k,1. Sequential Baseline,3.289115,1.602476,1.0000,PASS
+ASIC_320k,2. OMP Merge-Path Scalar,3.206406,1.643812,1.0258,PASS
+ASIC_320k,3. OMP Merge-Path AVX2,1.290634,4.083829,2.5484,PASS
+ASIC_320k,4. OMP Merge-Path AVX2 Unrolled×2,1.324599,3.979113,2.4831,PASS
+ASIC_320k,5. OMP Merge-Path AVX2 Unrolled+Prefetch,1.386848,3.800508,2.3716,PASS
+matrix,approach,time_ms,gflops,speedup,correct
+thermomech_dK,1. Sequential Baseline,3.492671,1.629829,1.0000,PASS
+thermomech_dK,2. OMP Merge-Path Scalar,1.227173,4.638673,2.8461,PASS
+thermomech_dK,3. OMP Merge-Path AVX2,1.563681,3.640419,2.2336,PASS
+thermomech_dK,4. OMP Merge-Path AVX2 Unrolled×2,1.630108,3.492074,2.1426,PASS
+thermomech_dK,5. OMP Merge-Path AVX2 Unrolled+Prefetch,1.292508,4.404193,2.7022,PASS
+matrix,approach,time_ms,gflops,speedup,correct
+ASIC_320k,1. Sequential Baseline,3.496871,1.507270,1.0000,PASS
+ASIC_320k,2. OMP Merge-Path Scalar,1.015132,5.192163,3.4447,PASS
+ASIC_320k,3. OMP Merge-Path AVX2,1.073925,4.907910,3.2562,PASS
+ASIC_320k,4. OMP Merge-Path AVX2 Unrolled×2,1.390077,3.791680,2.5156,PASS
+ASIC_320k,5. OMP Merge-Path AVX2 Unrolled+Prefetch,1.376620,3.828746,2.5402,PASS
+thermomech_dK,8,1. Sequential Baseline,3.423311,1.662851,17.3447,1.0000,PASS
+thermomech_dK,8,2. OMP Merge-Path Scalar,1.842258,3.089934,32.2302,1.8582,PASS
+thermomech_dK,8,3. OMP Merge-Path AVX2,1.308977,4.348782,45.3609,2.6153,PASS
+thermomech_dK,8,4. OMP AVX2 Unrolled×2,1.256549,4.530229,47.2535,2.7244,PASS
+thermomech_dK,8,5. OMP AVX2+Prefetch(d=32),1.315444,4.327402,45.1379,2.6024,PASS
+ASIC_320k,8,1. Sequential Baseline,3.510415,1.501454,16.1147,1.0000,PASS
+ASIC_320k,8,2. OMP Merge-Path Scalar,0.958335,5.499880,59.0286,3.6630,PASS
+ASIC_320k,8,3. OMP Merge-Path AVX2,1.103366,4.776955,51.2696,3.1816,PASS
+ASIC_320k,8,4. OMP AVX2 Unrolled×2,1.285905,4.098846,43.9917,2.7299,PASS
+ASIC_320k,8,5. OMP AVX2+Prefetch(d=32),1.303346,4.043997,43.4030,2.6934,PASS
