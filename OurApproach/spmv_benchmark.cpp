@@ -1,22 +1,17 @@
 /*******************************************************************************
- * spmv_benchmark.cpp  —  FIXED VERSION v2
+ * spmv_benchmark.cpp  —  FIXED VERSION v3
  *
- * Fixes vs the original:
- *   1. pf_dist is now a CLI parameter (--pfdist=N, default 32).
- *      The original PF_DIST=16 caused cache pollution → Approach 5 slower
- *      than Approach 4.  Tune with --pfdist=0/16/32/48/64 to find the sweet
- *      spot for your CPU's L1/L2 latency and cache line size.
+ * Changes vs v2:
+ *   0. APPROACH 0 ADDED — Author's original OmpMergeCsrmv from the paper
+ *      (Merrill & Garland, SC'16) ported faithfully to double precision.
+ *      All speedups are now reported relative to this author baseline.
+ *      This is the "target to beat" as required by the assignment.
  *
- *   2. Effective memory bandwidth (GB/s) is printed alongside GFLOPs.
- *      This is required for the instructor's roofline analysis.
- *
- *   3. CSV header bug fixed: the file is checked for existence before
- *      writing the header, so running two matrices back-to-back no longer
- *      produces duplicate headers.
- *
- *   4. Thread affinity set via setenv("OMP_PROC_BIND","close") so threads
- *      stay pinned to their starting cores. GCC's libgomp does not expose
- *      omp_set_proc_bind() at runtime, so we use setenv instead.
+ *   Other fixes carried over from v2:
+ *   1. pf_dist is a CLI parameter (--pfdist=N, default 32).
+ *   2. Effective memory bandwidth (GB/s) alongside GFLOPs.
+ *   3. CSV header bug fixed.
+ *   4. Thread affinity via setenv("OMP_PROC_BIND","close").
  *
  * CS-3006 · Parallel & Distributed Computing · Spring 2026
  * Muhammad Umair (23i-0662) · Awais Basheer (23i-0506)
@@ -149,7 +144,7 @@ struct Timer {
 };
 
 /* =========================================================================
- * MergePath binary search
+ * MergePath binary search (shared by all approaches)
  *   Finds (row_idx, nz_idx) where diagonal d intersects the merge path.
  * ========================================================================= */
 static inline void MergePathSearch(
@@ -178,6 +173,62 @@ static inline __m256d gather4(const int* col_ptr, const double* x)
 {
     __m128i vi = _mm_loadu_si128(reinterpret_cast<const __m128i*>(col_ptr));
     return _mm256_i32gather_pd(x, vi, 8 /* scale = sizeof(double) */);
+}
+
+/* =========================================================================
+ * Approach 0 – Author's Original OmpMergeCsrmv  (Paper: Merrill & Garland)
+ *
+ *  This is the BASELINE to beat.  Ported faithfully from the author's
+ *  reference implementation (mergebased_spmv.cpp) to double precision.
+ *  The only change is float → double; the algorithm, loop structure,
+ *  and carry-out fix-up are identical to the paper's reference code.
+ * ========================================================================= */
+void SpMV_Author_Baseline(
+    const CsrMatrix& A,
+    const double* __restrict__ x,
+    double* __restrict__ y,
+    int num_threads,
+    int* row_carry_out, double* val_carry_out)
+{
+    // row_end_offsets = A.row_offsets + 1  (author's pointer trick)
+    const int* row_end_offsets = A.row_offsets + 1;
+    const int  num_merge_items = A.num_rows + A.num_nonzeros;
+
+    #pragma omp parallel for schedule(static) num_threads(num_threads)
+    for (int tid = 0; tid < num_threads; tid++)
+    {
+        int items_per_thread = (num_merge_items + num_threads - 1) / num_threads;
+        int start_diagonal   = std::min(items_per_thread * tid,        num_merge_items);
+        int end_diagonal     = std::min(start_diagonal + items_per_thread, num_merge_items);
+
+        int row_s, nz_s, row_e, nz_e;
+        MergePathSearch(start_diagonal, row_end_offsets,
+                        A.num_rows, A.num_nonzeros, row_s, nz_s);
+        MergePathSearch(end_diagonal,   row_end_offsets,
+                        A.num_rows, A.num_nonzeros, row_e, nz_e);
+
+        // Consume whole rows
+        for (; row_s < row_e; ++row_s) {
+            double running_total = 0.0;
+            for (; nz_s < row_end_offsets[row_s]; ++nz_s)
+                running_total += A.values[nz_s] * x[A.col_indices[nz_s]];
+            y[row_s] = running_total;
+        }
+
+        // Consume partial portion of thread's last row
+        double running_total = 0.0;
+        for (; nz_s < nz_e; ++nz_s)
+            running_total += A.values[nz_s] * x[A.col_indices[nz_s]];
+
+        // Save carry-outs
+        row_carry_out[tid] = row_e;
+        val_carry_out[tid] = running_total;
+    }
+
+    // Carry-out fix-up (rows spanning multiple threads)
+    for (int tid = 0; tid < num_threads - 1; ++tid)
+        if (row_carry_out[tid] < A.num_rows)
+            y[row_carry_out[tid]] += val_carry_out[tid];
 }
 
 /* =========================================================================
@@ -466,16 +517,6 @@ double Benchmark(Fn fn, int warmup, int iters)
 
 /* =========================================================================
  * Compute worst-case bytes transferred per SpMV
- *
- *   values[]      : nnz × 8  (double)
- *   col_indices[] : nnz × 4  (int32)
- *   row_offsets[] : (rows+1) × 4  (int32)
- *   x[]           : nnz × 8  (worst-case: every column unique, fully cold)
- *   y[]           : rows × 8  (write)
- *
- * For regular matrices x[] is largely L3-resident after the first iteration,
- * so actual BW will be lower than this — which is fine for the roofline plot
- * (it gives a conservative lower bound on arithmetic intensity AI = FLOP/byte).
  * ========================================================================= */
 static double BytesPerIter(const CsrMatrix& A)
 {
@@ -491,8 +532,8 @@ struct Row {
     std::string label;
     double time_ms;
     double gflops;
-    double bw_gbs;     // effective memory bandwidth GB/s
-    double speedup;
+    double bw_gbs;
+    double speedup;    // relative to Approach 0 (author baseline)
     bool   correct;
 };
 
@@ -503,33 +544,27 @@ static void PrintTable(const std::vector<Row>& rows,
                        const std::string& mname, int threads)
 {
     printf("\nMatrix: %s   (threads=%d)\n", mname.c_str(), threads);
-    printf("%-46s  %9s  %9s  %10s  %9s  %7s\n",
+    printf("  NOTE: Speedup is relative to Approach 0 (Author's Baseline)\n");
+    printf("%-48s  %9s  %9s  %10s  %9s  %7s\n",
            "Approach", "Time(ms)", "GFLOPs/s", "BW(GB/s)", "Speedup", "Correct");
-    printf("%s\n", std::string(102, '-').c_str());
+    printf("%s\n", std::string(104, '-').c_str());
     for (auto& r : rows)
-        printf("%-46s  %9.4f  %9.4f  %10.3f  %9.3fx  %7s\n",
+        printf("%-48s  %9.4f  %9.4f  %10.3f  %9.3fx  %7s\n",
                r.label.c_str(), r.time_ms, r.gflops, r.bw_gbs,
                r.speedup, r.correct ? "PASS" : "FAIL");
     printf("\n");
 }
 
 /* =========================================================================
- * Write/append CSV  (header written only once per file)
+ * Write CSV  (always writes header; overwrites file each run)
  * ========================================================================= */
 static void WriteCsv(const std::vector<Row>& rows,
                      const std::string& mname, int threads,
                      const std::string& path)
 {
-    // Only write header if the file does not yet exist
-    bool needs_header = true;
-    {
-        std::ifstream probe(path);
-        if (probe.good()) needs_header = false;
-    }
-    FILE* f = fopen(path.c_str(), "a");
+    FILE* f = fopen(path.c_str(), "w");
     if (!f) { fprintf(stderr, "Cannot write %s\n", path.c_str()); return; }
-    if (needs_header)
-        fprintf(f, "matrix,threads,approach,time_ms,gflops,bw_gbs,speedup,correct\n");
+    fprintf(f, "matrix,threads,approach,time_ms,gflops,bw_gbs,speedup_vs_author,correct\n");
     for (auto& r : rows)
         fprintf(f, "%s,%d,%s,%.6f,%.6f,%.4f,%.4f,%s\n",
                 mname.c_str(), threads, r.label.c_str(),
@@ -547,7 +582,7 @@ int main(int argc, char** argv)
     int  num_threads  = omp_get_max_threads();
     int  timing_iters = 100;
     int  warmup_iters = 5;
-    int  pf_dist      = 32;          // tunable prefetch distance
+    int  pf_dist      = 32;
     std::string csv_out = "results.csv";
 
     for (int i = 1; i < argc; ++i) {
@@ -572,11 +607,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Pin threads to their starting cores to avoid NUMA migration.
-    // omp_set_proc_bind() is not available in GCC's libgomp, so we set the
-    // environment variables programmatically before any OMP work begins.
-    // Equivalent to: export OMP_PROC_BIND=close; export OMP_PLACES=cores
-    setenv("OMP_PROC_BIND", "close", 0);   // 0 = don't overwrite if already set
+    setenv("OMP_PROC_BIND", "close", 0);
     setenv("OMP_PLACES",    "cores", 0);
 
     printf("=================================================================\n");
@@ -586,7 +617,7 @@ int main(int argc, char** argv)
     printf("  OMP threads  : %d\n", num_threads);
     printf("  Timing iters : %d  (warmup %d)\n", timing_iters, warmup_iters);
     printf("  Prefetch dist: %d nonzeros%s\n",
-           pf_dist, pf_dist > 0 ? "" : "  (DISABLED — identical to Approach 4)");
+           pf_dist, pf_dist > 0 ? "" : "  (DISABLED)");
 
     CsrMatrix A;
     if (!LoadMatrixMarket(mtx_file, A)) return 1;
@@ -604,7 +635,6 @@ int main(int argc, char** argv)
     printf("  Arith. Intens: %.4f FLOP/byte (roofline)\n", ai_flop_per_byte);
     printf("=================================================================\n\n");
 
-    // Allocate aligned vectors
     double* x        = (double*)aligned_new(sizeof(double) * A.num_cols);
     double* yref     = (double*)aligned_new(sizeof(double) * A.num_rows);
     double* y        = (double*)aligned_new(sizeof(double) * A.num_rows);
@@ -615,10 +645,9 @@ int main(int argc, char** argv)
     int*    row_carry = (int*)   aligned_new(sizeof(int)    * MAX_T);
     double* val_carry = (double*)aligned_new(sizeof(double) * MAX_T);
 
-    // Compute reference answer with sequential baseline
+    // Reference answer from sequential (not the baseline, just for verification)
     SpMV_Sequential(A, x, yref);
 
-    // Strip path/extension from filename for labels
     std::string mname = mtx_file;
     {
         auto s = mname.rfind('/');
@@ -628,21 +657,30 @@ int main(int argc, char** argv)
     }
 
     std::vector<Row> results;
-    double base_ms = 0.0;
+    double author_baseline_ms = 0.0;  // <-- all speedups relative to this
 
-    // Helper lambda to build a Row
     auto make_row = [&](const std::string& lbl, double ms, bool ok) -> Row {
         double gf  = gflops_per_iter / (ms * 1e-3);
         double bw  = bytes_per_iter  / (ms * 1e-3) / 1e9;
-        double spd = (base_ms > 0) ? base_ms / ms : 1.0;
+        double spd = (author_baseline_ms > 0) ? author_baseline_ms / ms : 1.0;
         return Row{lbl, ms, gf, bw, spd, ok};
     };
+
+    // ---- Approach 0: Author's Original OmpMergeCsrmv (THE BASELINE) ------
+    {
+        auto fn = [&]{
+            SpMV_Author_Baseline(A, x, y, num_threads, row_carry, val_carry);
+        };
+        double ms = Benchmark(fn, warmup_iters, timing_iters);
+        author_baseline_ms = ms;          // anchor for all speedup calculations
+        bool ok = Verify(yref, y, A.num_rows);
+        results.push_back(make_row("0. Author Baseline (OmpMergeCsrmv)", ms, ok));
+    }
 
     // ---- Approach 1: Sequential ------------------------------------------
     {
         auto fn = [&]{ SpMV_Sequential(A, x, y); };
         double ms = Benchmark(fn, warmup_iters, timing_iters);
-        base_ms = ms;
         bool ok = Verify(yref, y, A.num_rows);
         results.push_back(make_row("1. Sequential Baseline", ms, ok));
     }
